@@ -1,0 +1,11 @@
+The bundled libsqlite3-sys bindings retain their upstream MIT license in
+vendor/libsqlite3-sys/LICENSE. The SQLite amalgamation carries the upstream
+public-domain dedication in its source. The bundled amalgamation is SQLite
+3.54.1, as identified in sqlite3.c and sqlite3.h.
+
+See vendor/libsqlite3-sys/README.md for the upstream blob and SHA3-256
+digest of the amalgamation, and https://sqlite.org/copyright.html for
+the SQLite copyright statement.
+
+Cargo fetches the remaining packages from crates.io as pinned in Cargo.lock.
+Their declared licenses and packaged notices are in THIRD_PARTY_LICENSES.txt.

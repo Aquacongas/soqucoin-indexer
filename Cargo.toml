@@ -1,0 +1,27 @@
+[workspace]
+members = ["crates/*"]
+exclude = ["vendor/libsqlite3-sys"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+hex = "0.4"
+soq-core = { path = "crates/soq-core" }
+soq-maps = { path = "crates/soq-maps" }
+soq-fingerprints = { path = "crates/soq-fingerprints" }
+soq-indexer = { path = "crates/soq-indexer" }
+
+[patch.crates-io]
+libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

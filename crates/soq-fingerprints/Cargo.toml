@@ -1,0 +1,13 @@
+[package]
+name = "soq-fingerprints"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+png = "0.18"
+serde.workspace = true
+soq-core.workspace = true
+libm = "0.2"

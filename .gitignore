@@ -1,0 +1,12 @@
+/target/
+/data/
+.env
+.env.*
+!.env.example
+*.sqlite*
+*.sqlite3*
+*.db
+*.db-*
+*.db.lock
+*.pem
+*.key

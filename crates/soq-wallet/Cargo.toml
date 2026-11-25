@@ -1,0 +1,21 @@
+[package]
+name = "soq-wallet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[lib]
+crate-type = ["rlib", "cdylib"]
+[dependencies]
+soq-core.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+fips204 = { path = "../../vendor/fips204", default-features = false, features = ["ml-dsa-44"] }
+zeroize = { version = "1.8", features = ["derive"] }
+getrandom = { version = "0.2", features = ["js"] }
+bs58 = "0.5"
+qrcode = { version = "0.13", default-features = false, features = ["svg"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+wasm-bindgen = "=0.2.122"

@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["vendor/libsqlite3-sys"]
+exclude = ["vendor/fips204", "vendor/sha3", "vendor/keccak", "vendor/libsqlite3-sys"]
 resolver = "2"
 
 [workspace.package]
@@ -15,11 +15,14 @@ serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 sha2 = "0.10"
 hex = "0.4"
 soq-core = { path = "crates/soq-core" }
+soq-wallet = { path = "crates/soq-wallet" }
 soq-maps = { path = "crates/soq-maps" }
 soq-fingerprints = { path = "crates/soq-fingerprints" }
 soq-indexer = { path = "crates/soq-indexer" }
 
 [patch.crates-io]
+sha3 = { path = "vendor/sha3" }
+keccak = { path = "vendor/keccak" }
 libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
 
 [profile.release]

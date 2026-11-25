@@ -1,0 +1,38 @@
+
+[package]
+name = "fips204"
+version = "0.5.0"
+authors = ["Eric Schorn <eschorn@integritychain.com>"]
+description = "FIPS 204: Module-Lattice-Based Digital Signature Standard"
+categories = ["cryptography", "no-std"]
+documentation = "https://docs.rs/fips204"
+edition = "2021"
+keywords = ["FIPS204", "ml-dsa", "dilithium", "post-quantum", "signature"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/integritychain/fips204"
+# MSRV set at 1.85 for Debian stable (trixie), e.g. https://packages.debian.org/trixie/rustc
+rust-version = "1.85"
+# The NIST and Wycheproof vectors (22 MB gzipped) stay in the repository; the published crate omits
+# them, except the NIST keyGen vectors (480 kB), which distribution packages use to test the FFI
+exclude = ["tests/nist_vectors/*", "!tests/nist_vectors/ML-DSA-keyGen-FIPS204/", "tests/wycheproof/"]
+
+
+[features]
+default = ["default-rng", "ml-dsa-44", "ml-dsa-65", "ml-dsa-87"]
+default-rng = ["rand_core/getrandom"]
+ml-dsa-44 = []
+ml-dsa-65 = []
+ml-dsa-87 = []
+# Test and measurement hooks only; not for use in applications.
+# `acvp-internal` lets the NIST tests apply every vector. The tests turn it on below.
+acvp-internal = []
+# `dudect` exposes `dudect_keygen_sign_with_rng()` to the dudect harness.
+dudect = []
+
+
+[dependencies]
+rand_core = { version = "0.6.4", default-features = false }
+sha3 = { version = "0.10.9", default-features = false, features = ["zeroize"] }
+zeroize = { version = "1.6.0", default-features = false, features = ["zeroize_derive"] }
+
+

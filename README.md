@@ -1,4 +1,4 @@
-# Soqucoin Indexer
+# Soqucoin Indexer and SOQ.MARKET Wallet
 
 ## Project overview
 
@@ -12,6 +12,46 @@ The indexer can catch up while the node is downloading blocks. A complete
 current index requires the node to finish initial block download, and the
 indexer's one-shot mode waits for that condition. Soqucoin Core owns consensus
 validation. The release contains a command-line process and a Rust library.
+
+The release also includes the SOQ.MARKET wallet engine. It derives ML-DSA-44
+keys, constructs and signs transactions in Rust, and exposes the same wallet
+through WebAssembly. The browser integration uses the marketplace APIs for
+funding data, network fee quotes and broadcasting.
+
+[On-chain protocols and wallet architecture](PROTOCOL%26WALLET.md)
+
+### Source layout
+
+| Path | Contents |
+| --- | --- |
+| `crates/soq-indexer` | Synchronization, SQLite ledger and CLI |
+| `crates/soq-core` | Shared transaction serialization, scripts, SQMK operations and fees |
+| `crates/soq-wallet` | Wallet, recovery, signing, marketplace and WASM bindings |
+| `crates/soq-fingerprints`, `crates/soq-maps` | Deterministic metadata and artwork |
+| `wallet-browser` | Browser storage, fee quotation and submission integration |
+| `tests`, `vendor` | Verification fixtures, WASM tests and pinned dependencies |
+
+### Wallet build and tests
+
+After installing Rust 1.96.0, run the following from the release root. The
+conformance tests use Node.js 22.22.1 and synthetic UTXOs.
+
+```sh
+rustup target add --toolchain 1.96.0 wasm32-unknown-unknown
+cargo +1.96.0 install wasm-bindgen-cli --locked --version 0.2.122
+cargo +1.96.0 test --locked --workspace
+cargo +1.96.0 build --locked -p soq-wallet --release --target wasm32-unknown-unknown
+wasm-bindgen target/wasm32-unknown-unknown/release/soq_wallet.wasm --target web --out-dir target/wallet-web
+node tests/browser-wallet.mjs
+node tests/fatcat-wallet.mjs
+```
+
+An unlocked wallet trusts the browser and the JavaScript delivered to its
+origin. The backup APIs can pass recovery secrets into JavaScript. The
+production browser stores an encrypted wallet envelope in local storage.
+The marketplace supplies wallet-visible chain state, quotes, and broadcast
+responses. See the protocol and wallet document for the data and trust
+boundaries.
 
 ## Architecture
 
@@ -333,8 +373,8 @@ standalone synchronization process uses read-only node RPC methods.
 
 ## License
 
-The indexer and its supporting first-party crates are distributed under the
+The indexer, wallet and supporting first-party code are distributed under the
 [MIT License](LICENSE), with the original copyright notice preserved. The
-bundled SQLite sources and Rust bindings retain their upstream terms. See
+bundled SQLite and cryptographic dependencies retain their upstream terms. See
 [NOTICE](NOTICE) and [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for
 provenance, attribution, and dependency license texts.

@@ -1,3 +1,7 @@
+# PART I — SOQ.MARKET ON-CHAIN PROTOCOLS
+
+[Part II — SOQ.MARKET wallet architecture](#part-ii--soqmarket-wallet-architecture)
+
 # SOQ.MARKET on-chain protocol specification
 
 This specification describes the standalone Soqucoin Indexer release represented by source snapshot `b7d8fc9`. Its application rules define compatible asset state over blocks supplied by Soqucoin Core. Core determines chain validity and the active branch. Wallet preflight, rendering, database migration, and local marketplace projections are identified separately below.
@@ -428,3 +432,267 @@ The release contains no canonical off-chain NFT metadata schema or signed market
 [manifest]: Cargo.toml
 [lock]: Cargo.lock
 [readme]: README.md
+
+# PART II — SOQ.MARKET WALLET ARCHITECTURE
+
+## 1. Components and trust boundaries
+
+`soq-wallet` builds a native Rust library and a `cdylib`. The `BrowserWallet`
+bindings are in `src/lib.rs` and `src/trade.rs`. `src/recovery.rs` implements
+the recovery format. `soq-core` defines transaction encoding, witness-v1
+addresses, SQMK output scripts and fee rules. The indexer can build without
+selecting the wallet crate.
+
+For browser use, wasm-bindgen emits an ES module, a WASM binary and declaration
+files. Production loads the module from the application origin and constructs
+`BrowserWallet(hrp, wif_prefix)` from `GET /api/v1/config`. JSON strings cross
+the binding for UTXOs, operation requests, offers, review records and encrypted
+backups. Signed transactions cross back as hex. Passwords, import phrases and
+seed WIFs can cross as strings. `wallet-browser/boundary.mjs` preserves the
+network and storage logic used by the host, including the fee convergence loop
+and signing/submission calls. Its host provides authorization, wallet lifecycle
+and pending-state coordination. These are application responsibilities.
+
+Production fetches indexed UTXOs at `GET /api/v1/address/{address}/utxos`.
+The indexer derives asset ownership and protection status, while Soqucoin Core
+provides chain and mempool state. The browser sends a size template to
+`POST /api/v1/fee-estimate`. After review it sends signed raw hex, expected
+transaction ID, network fee atoms and the authorization flag to
+`POST /api/v1/broadcast`. The production server gates broadcasting, checks
+origin and transaction ID, checks the synchronized tip and live prevouts with
+`gettxout`, applies transaction and protocol preflight, and relays accepted
+transactions via `sendrawtransaction`. Core decides consensus and mempool
+acceptance. The standalone indexer runs independently of the marketplace API.
+
+## 2. Keys, recovery and addresses
+
+`Wallet::create` uses `getrandom` for a 32-byte ML-DSA seed. In a browser the
+WASM build uses Web Crypto `getRandomValues`; entropy failure returns an error.
+The current production create flow instead calls `create_recovery_phrase`.
+It generates 256 bits of entropy locally. The 24-word format appends the first
+SHA-256 byte to the entropy and maps each consecutive 11-bit group, most
+significant bit first, through the BIP 39 English word list. On import, the
+decoder splits on whitespace and checks the word count, word membership and
+checksum.
+
+SOQ derives the 32-byte key-generation seed as SHA-256 over
+`b"SOQ.MARKET/ML-DSA-44/recovery/v1\0" || entropy || counter_be32`, starting at
+counter zero. It retries if the serialized public key begins with the
+node-reserved byte `ff`. The BIP 39 PBKDF2 seed and HD derivation are outside
+this format. The pinned Rust `fips204` implementation expands the seed using
+FIPS 204 ML-DSA-44, with a 1312-byte public key, 2560-byte serialized expanded
+private-key format and 2420-byte signature. The wallet holds the expanded
+private key in a Rust object and backs up a seed or recovery entropy.
+
+Seed WIF is Base58 of `prefix || seed[32] || 02 || checksum[4]`, where the
+checksum is the first four bytes of SHA-256 applied twice to the preceding
+34 bytes. Network prefix is checked on import. The reference mainnet setting
+is 158 and the stagenet setting is 253. Expanded-key WIF is unsupported.
+A phrase-backed wallet can export either its phrase or its derived seed WIF.
+Restoring from seed WIF recovers the same address and signing key. The
+original phrase requires the recovery entropy.
+
+The address program is SHA-256 of the raw public key. The address uses
+Bech32m, HRP `sq` or `ssq`, a first five-bit element of 1, and the 32-byte
+program converted to five-bit groups. The locking script is `51 20` followed
+by the program. Destination decoding checks the configured HRP, Bech32m
+variant, version 1 and decoded program length.
+
+## 3. Storage and local signing
+
+`Wallet::encrypt` generates a random 16-byte salt and 12-byte nonce.
+Argon2 0.5.3 defaults are Argon2id v1.3 with 19,456 KiB, two iterations and
+one lane, deriving 32 bytes from the UTF-8 password. The Rust API accepts
+12–1024 password bytes. AES-256-GCM encrypts 32 plaintext bytes, yielding
+48 bytes including the authentication tag. Authenticated data is
+`SOQ.MARKET/wallet/v{version}/{hrp}/{prefix}`, with decimal version and prefix.
+The JSON envelope holds `version`, `hrp`, `prefix` and hex-encoded `salt`,
+`nonce` and `ciphertext`. Version 1 stores the ML-DSA seed and version 2 stores
+recovery entropy. Unlock validates sizes, version and network, authenticates
+the envelope and regenerates the wallet from the decrypted data.
+
+The production host stores this envelope under `soq-encrypted-wallet` in
+origin local storage. Recovery creation returns the phrase to JavaScript.
+Backup methods return the WIF or phrase on request. Import and unlock use
+JavaScript-supplied strings. The production UI can put backup text into the
+DOM and the system clipboard. The inspected request paths for funding,
+quoting, listing and broadcasting do not send password, seed or recovery
+phrase to the server. They do expose wallet addresses and transaction
+information. Explicit export lets backup material leave the browser.
+
+Locking drops the wallet object and the host clears relevant UI state.
+Production locks on page hide, wallet storage changes and five minutes of
+inactivity. The Rust code uses zeroizing wrappers for selected buffers.
+JavaScript strings, browser and clipboard copies, and all WASM memory
+copies have no verified erasure guarantee. Origin storage can be cleared or
+copied and the encrypted envelope can be subjected to offline password
+guessing. A short-lived unlocked state and encrypted persistence address
+different risks.
+
+## 4. Funding, transaction layout and authorization
+
+Funding inputs contain a displayed txid, output index, atom value as a
+decimal string, hex locking script, coinbase/protected flags and optional
+confirmations, native-spendable flag, asset and quantity. SOQ decimal
+conversion is exact, with up to eight decimal places and 100,000,000 atoms per
+SOQ. Token quantities are whole units. Native payment filters confirmed,
+unprotected, asset-free outputs and uses the backend maturity/spendability
+flag for coinbase outputs. It checks ownership and duplicate outpoints, takes
+up to 32 positive-value candidates in descending value order and stops at
+the required sum. MAX payment uses the eligible total minus its fee.
+Native payment emits a recipient output and optional same-wallet change,
+with no platform fee.
+
+The operation builder takes up to 32 unprotected non-coinbase candidates in
+caller order. FATCAT additionally requires six confirmations. Asset
+transfers take up to 24 matching asset inputs plus up to eight native
+funding inputs. Purchases preserve the seller input and use up to 31 buyer
+funding inputs. These paths have their own eligibility rules and depend on
+the host and server for asset state and live outpoint validation.
+
+Wallet builders use version 2, lock time zero, empty scriptSig and maximum
+input sequence. Creation and mint requests generally place a 1,000,000-atom
+asset anchor first and a zero-value SQMK OP_RETURN carrier immediately after
+it. Listing-fee transactions omit the asset anchor. The platform fee output
+follows the carrier when required, and residual native SOQ goes back to the
+wallet. Asset transfers may add a second anchor for token change. Amounts and
+fee rules are defined by `soq-core::fees` and Part I.
+
+The network fee is the input sum less the output sum. Rust receives the
+selected fee as a decimal amount. For automatic fees, JavaScript starts at
+one atom and rebuilds and quotes up to 12 times. `fee_template` substitutes
+2421- and 1313-byte zero-filled witness items for unsigned inputs while
+retaining existing seller witnesses. The backend asks Core to decode virtual
+size and calculates ceil(rate × vsize / 1000). The rate is the maximum of
+the 0.01 SOQ/kB floor, relay minimum, mempool minimum and valid six-block
+estimate. Quotes can change the selected inputs and appearance of change.
+The MAX path can retain a fee that consumes change when the next quote drops.
+
+Production review shows the operation, selected destination, amount or
+asset, platform and network fees, total debit and change. `review_summary`
+reads the transaction outputs and decodes their scripts. The host also
+uses fields supplied in the review JSON. The authorization handler
+submits the review through `sign_review`. The generic signing interface
+checks aligned prevouts, duplicate inputs, empty scriptSig, ownership or
+a counterparty witness, and that output totals do not exceed input totals.
+It signs wallet-owned inputs and verifies all witnesses before encoding.
+
+## 5. Signature preimage and wire format
+
+`soq_core::Transaction::sighash_type` hashes this concatenation with double
+SHA-256. Integers are little endian.
+
+1. Transaction version (4 bytes).
+2. Double SHA-256 of encoded outpoints, then double SHA-256 of input
+   sequences. Each hash is 32 zero bytes for SINGLE|ANYONECANPAY.
+3. Current outpoint (display txid bytes reversed and 4-byte output index).
+4. CompactSize-prefixed prevout locking script, 8-byte prevout amount
+   and 4-byte current input sequence.
+5. Double SHA-256 of serialized outputs. SIGHASH_ALL uses all outputs.
+   SINGLE|ANYONECANPAY uses only the output with the current input index.
+   Each encoded output is an 8-byte amount followed by a CompactSize-sized
+   script.
+6. 4-byte lock time and 4-byte hash type (`01` or `83` as a numeric value).
+
+ML-DSA-44 signs the resulting 32-byte message with an empty context and
+32 zero bytes as the signing randomness parameter. The witness has two
+CompactSize-length-prefixed items. The first is a 2420-byte signature and
+one sighash byte. The second is one zero marker byte and the 1312-byte key.
+The verifier accepts `01` for all inputs and `83` on input zero only, checks
+the public-key hash against the prevout, and verifies the appropriate digest.
+
+Wire encoding is version, witness marker/flag `00 01` when applicable,
+CompactSize input count and inputs, CompactSize output count and outputs,
+per-input witness stacks, and lock time. Witness stack item counts and
+lengths are CompactSize. The displayed txid reverses the double SHA-256
+of the serialization without witness data.
+
+## 6. Operation construction
+
+| Browser entry | SQMK behavior |
+| --- | --- |
+| `operation_json` with `deploy` | Deploy SQR-20 with metadata hash, integer cap and limit, zero-padded eight-byte ticker and name key. |
+| `mint` | Mint an integer amount for a referenced token ID to output zero. |
+| `collection` | Create a collection with metadata hash, size limit and name key. |
+| `nft` | Create a standalone NFT or, with a collection reference, mint a collection NFT. Output zero receives the asset. |
+| `map`, `soqumap` | Request a FINGERPRINT (`MapRequest`) or SOQ-MAPS asset (`SoquMapRequest`), respectively. The indexer resolves deterministic content from chain data. |
+| `fatcat` | Emit the direct `FatcatRequest` to output zero with the fixed FATCAT fee. |
+| `prepare_transfer` | Emit allocations for token quantities or the NFT unit and return unspent units to a second anchor when needed. |
+| `create_offer`, `listing_operation` | Sign the complete selected lot as an offer and commit SHA-256 of the exact UTF-8 offer JSON in the listing carrier. |
+| `prepare_purchase` | Verify the seller template and append buyer funding, buyer asset anchor, settlement carrier, combined applicable platform payment and optional buyer change. |
+| `prepare_cancellation` | Spend exactly one complete selected lot back to the wallet in a cancellation transaction. |
+
+The seller offer uses SINGLE|ANYONECANPAY on input zero. Output zero returns
+the seller's input anchor value plus price less the applicable seller DEX
+commission. For DEX trades, each side's base commission is ceil(price in
+atoms × 50 / 10,000), with the permitted discount applied separately.
+NFT marketplace sales charge the buyer platform fee and no seller
+commission. A seller authorization can be reused in a valid settlement
+until the named outpoint is spent. The indexer determines whether an
+on-chain transaction satisfies the protocol and whether a referenced
+asset, offer or discount is valid.
+
+## 7. Security limits
+
+The signer trusts the browser origin and the review and prevout data
+given to it. The backend supplies spendability, asset classifications,
+confirmations, fee quotes and marketplace information. Its data can
+influence the unsigned candidate before authorization. A valid signature
+authenticates the corresponding bytes under its sighash rules.
+Authentication of chain state comes from the node and independent chain
+verification. The review label and explicit authorization flag are host UI
+and API state. They are outside the signature format. A compromised origin,
+extension or browser can alter the reviewed data or access exported secrets.
+Reviewers should assess the deployed script and WASM delivery, browser
+environment and pinned dependencies together. This description is based on
+source review and conformance checks.
+
+## 8. Build and independently verify
+
+Tested on Linux x86-64 with Rust and Cargo 1.96.0, wasm-bindgen CLI 0.2.122
+and Node.js 22.22.1. Cargo resolves Rust dependencies from the checked-in
+lockfile. Install Rust through rustup and run from the release root.
+
+```sh
+sudo apt-get install build-essential
+rustup toolchain install 1.96.0
+rustup target add --toolchain 1.96.0 wasm32-unknown-unknown
+cargo +1.96.0 fetch --locked
+cargo +1.96.0 install wasm-bindgen-cli --locked --version 0.2.122
+cargo +1.96.0 build --locked --release -p soq-indexer --bin soq-indexer
+cargo +1.96.0 test --locked --workspace
+cargo +1.96.0 build --locked --release -p soq-wallet --target wasm32-unknown-unknown
+wasm-bindgen target/wasm32-unknown-unknown/release/soq_wallet.wasm --target web --out-dir target/wallet-web
+target/release/soq-indexer --help
+node tests/browser-wallet.mjs
+node tests/fatcat-wallet.mjs
+sha256sum target/wallet-web/*
+```
+
+Inspect `target/wallet-web/soq_wallet.d.ts` for the generated JavaScript
+interface. The Node tests instantiate the actual WASM module and run wallet
+operations using synthetic UTXOs. Artifact checksums can record the exact
+outputs of a local build. Browser and Core integration should be verified
+against the environment where the wallet will be deployed.
+
+For key generation, compare the first line of
+`tests/fixtures/official-mldsa44.txt` with ML-DSA-44 key generation from
+32 bytes of value 7. Verify the second line over 32 bytes of value 42 with
+an empty context. With zero recovery entropy, the recovery phrase is
+23 repetitions of `abandon` followed by `art`. The expected derived mainnet
+seed WIF is `QTqtZjZzSguz2R7fgk9QHiMa4WYKi6j6Cko6C4oCbJ8SMbTzW1c4`. These
+are public synthetic test inputs. The corresponding address is
+`sq1p90fh0mklmtkf9ae9vpurs0rj203hzeavhwj0eluutxl647kffczs0evyz3` and its script is
+`51202bd377eedfdaec92f7256078383c7253e37167acbba4fcff9c59bfaafac94e05`.
+
+Use `seed_wif_and_signing` in the wallet tests to reproduce an input of
+10,000 atoms spending output zero of the repeated-`ab` txid and creating a
+9,000-atom output under the same key. Changing the signed output by one
+atom must fail verification. Independently compute the witness program
+from the fixture public key, decode the address, reconstruct the preimage
+and validate both witness lengths and marker bytes. Compare token split,
+settlement and FATCAT outputs against the native and WASM tests, and SQMK
+bytes against Part I. To check the backend boundary in a browser, inspect the
+request bodies during create, unlock, fee quotation and test-network
+submission, and compare prevout values and asset status with an independently
+queried node and indexer.

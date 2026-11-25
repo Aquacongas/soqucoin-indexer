@@ -9,3 +9,26 @@ the SQLite copyright statement.
 
 Cargo fetches the remaining packages from crates.io as pinned in Cargo.lock.
 Their declared licenses and packaged notices are in THIRD_PARTY_LICENSES.txt.
+
+The original SOQ.MARKET wallet source is provided under the workspace MIT
+license. The browser boundary module extracts the corresponding application
+integration code. The Node WASM conformance tests derive from the application
+tests and use synthetic funding data.
+
+The fips204 source (IntegrityChain / Eric Schorn) is pinned to
+241af0d25efe54a3c99c6a7a8bd2fba3295f6951. Its manifest was adjusted upstream
+in SOQ.MARKET to remove workspace, development dependencies, benches and
+profiles. The RustCrypto sha3 source is pinned to
+1637e892b5658941d04a4d895165b66780c7d7ab and keccak to
+40c50c16410392439e2ac4ee0286285db479a106. All three retain their upstream
+MIT and Apache-2.0 license files alongside the code.
+
+The BIP 39 English word list in crates/soq-wallet/src/bip39-english.txt is from
+https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt. BIP 39
+identifies its license as MIT and credits Marek Palatinus, Pavol Rusnak,
+Aaron Voisine, and Sean Bowe.
+
+The public ML-DSA-44 fixture in tests/fixtures/official-mldsa44.txt was
+generated using Soqucoin Core cryptographic code from revision
+ecd502e43a88396cafb50cf4879d22d9b028dafe. It contains a public key and a
+signature for synthetic inputs. Soqucoin Core source is external.
